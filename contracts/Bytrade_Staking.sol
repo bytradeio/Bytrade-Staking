@@ -66,12 +66,13 @@ contract Bytrade_Staking {
 
 
         uint256 contractBalance = IERC20(Token).balanceOf(address(this));
+        uint256 initialBalance = 400_000_000 * 10**18; // the initial balance contract hold
 
         // calculating the interest 
         uint256 _interestAmount =  getInterest(_tenure, _amount);
 
         // contract should hold enough balance to payback the interest against staked amount
-        bool available = (contractBalance != 0 && contractBalance - stakedInterest > _interestAmount);
+        bool available = (contractBalance != 0 && initialBalance - stakedInterest > _interestAmount);
         require(available == true, "Stake: Contract doesn't hold sufficient balance.");
 
         // transfering token from "user account" to "staking contract"
@@ -168,8 +169,8 @@ contract Bytrade_Staking {
         returns (uint256)
     {
         uint256 _halving;
-        uint256 contractBalance = IERC20(Token).balanceOf(address(this));
         uint256 decimals = 10 **18;
+        uint256 contractBalance = (400_000_000 * decimals) - stakedInterest; // the initial balance contract hold minus interst dedicated to other deposits
 
         if (contractBalance > 200_000_000 * decimals){
             _halving = 1;
