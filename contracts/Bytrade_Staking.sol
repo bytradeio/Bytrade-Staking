@@ -65,7 +65,7 @@ contract Bytrade_Staking {
         );
 
 
-        uint256 contractBalance = IERC20(Token).balanceOf(address(this));
+        uint256 contractBalance = uint256 contractBalance = 400_000_000 * 10**18; // the initial balance contract hold
 
         // calculating the interest 
         uint256 _interestAmount =  getInterest(_tenure, _amount);
