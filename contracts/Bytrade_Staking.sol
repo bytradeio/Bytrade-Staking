@@ -1,15 +1,14 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.4;
+pragma solidity 0.8.4;
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract Bytrade_Staking {
 
     address public Token;
     mapping(address => userDeposit[]) public userDeposits;
-    uint256 public totalStaked;
-    uint256 public totalSent;
-    uint256 public stakedInterest;
-    uint256 public interestSent;
+    uint256 public amountStaked; // current amount contract hold
+    uint256 public stakedAmountInterest; // interest against current amount contract hold
+    uint256 public month = 2629800;  // number of seconds in a month
 
     // events for staking and unstaking
     event Stake(address userAddress, address tokenAddress, uint256 amount);
@@ -42,7 +41,7 @@ contract Bytrade_Staking {
     // used 10000000 Basis Points for decimal calculation
     tenures internal interestRate = tenures({one_month: 15000000, three_months: 60000000, six_months: 150000000, twelve_months: 400000000, twenty_four_months: 1200000000});
 
-    
+    //ERC20 token address 
     constructor(address _tokenAddress){
         Token = _tokenAddress;
     }
@@ -54,7 +53,7 @@ contract Bytrade_Staking {
     */
 
     // staking BT token for getting interest
-    function stake(uint256 _tenure, uint256 _amount) payable external {
+    function stake(uint256 _tenure, uint256 _amount) external {
         require(
             _tenure == 1 || _tenure == 3  || _tenure == 6 || _tenure == 12 || _tenure == 24,
             "Staking: Invalid tenure."
@@ -66,18 +65,17 @@ contract Bytrade_Staking {
 
 
         uint256 contractBalance = IERC20(Token).balanceOf(address(this));
-        uint256 initialBalance = 400_000_000 * 10**18; // the initial balance contract hold
 
         // calculating the interest 
         uint256 _interestAmount =  getInterest(_tenure, _amount);
 
         // contract should hold enough balance to payback the interest against staked amount
-        bool available = (contractBalance != 0 && initialBalance - stakedInterest > _interestAmount);
-        require(available == true, "Stake: Contract doesn't hold sufficient balance.");
+        bool available = (contractBalance != 0 && contractBalance - (amountStaked + stakedAmountInterest) > _interestAmount);
+        require(available, "Stake: Contract doesn't hold sufficient balance.");
 
         // transfering token from "user account" to "staking contract"
         bool success = IERC20(Token).transferFrom(msg.sender, address(this), _amount);
-        require(success == true, "Stake: Deposit failed!");
+        require(success, "Stake: Deposit failed!");
 
 
         //storing user's deposit details
@@ -85,13 +83,13 @@ contract Bytrade_Staking {
             userDeposit({
                 amount: _amount,
                 interestAmount: _interestAmount,
-                endTime: block.timestamp + _tenure * 2629800, // each month have 2629800 seconds, we are multiplying the seconds with number of months
+                endTime: block.timestamp + _tenure * month, // each month have 2629800 seconds, we are multiplying the seconds with number of months
                 depositTime: block.timestamp
             })
         );
 
-        totalStaked += _amount;    
-        stakedInterest += _interestAmount;
+        amountStaked += _amount;    
+        stakedAmountInterest += _interestAmount;
         emit Stake(msg.sender, Token, _amount);
     }
 
@@ -112,23 +110,39 @@ contract Bytrade_Staking {
         uint256 _withdrawAmount = userDeposits[msg.sender][_index].amount + userDeposits[msg.sender][_index].interestAmount;
         // returning deposit with interest
         bool success = IERC20(Token).transfer(msg.sender, _withdrawAmount);
-        require(success == true, "Unsatke: Withdraw failed!");
+        require(success, "Unsatke: Withdraw failed!");
         
-        totalSent += _withdrawAmount;
-        interestSent += userDeposits[msg.sender][_index].interestAmount;
+        amountStaked -= userDeposits[msg.sender][_index].amount;
+        stakedAmountInterest -= userDeposits[msg.sender][_index].interestAmount;
         delete userDeposits[msg.sender][_index];
 
         emit Unstake(msg.sender, Token, _withdrawAmount);
     }
 
 
-    // getting the list of user's deposits
-    function getUserDeposits(address userAddress)
-        external
-        view
-        returns (userDeposit[] memory)
-    {
-        return userDeposits[userAddress];
+    // getting the list of user's deposits 
+    function getUserDeposits(address userAddress, uint256 start, uint256 limit) external view returns (userDeposit[] memory, uint256 total) {
+        require(start >= 0 && limit > 0, "Invalid pagination parameters");
+
+        userDeposit[] storage deposits = userDeposits[userAddress];
+        uint256 numDeposits = deposits.length;
+
+        if (start >= numDeposits) {
+            return (new userDeposit[](0), userDeposits[userAddress].length);
+        }
+
+        uint256 end = start + limit;
+        if (end > numDeposits) {
+            end = numDeposits;
+        }
+
+        userDeposit[] memory result = new userDeposit[](end - start);
+
+        for (uint256 i = start; i < end; i++) {
+            result[i - start] = deposits[i];
+        }
+
+        return (result, userDeposits[userAddress].length);
     }
 
      /**
@@ -170,7 +184,11 @@ contract Bytrade_Staking {
     {
         uint256 _halving;
         uint256 decimals = 10 **18;
-        uint256 contractBalance = (400_000_000 * decimals) - stakedInterest; // the initial balance contract hold minus interst dedicated to other deposits
+        /**
+        
+         */
+        uint256 contractBalance = IERC20(Token).balanceOf(address(this));
+        contractBalance = contractBalance - (amountStaked + stakedAmountInterest);
 
         if (contractBalance > 200_000_000 * decimals){
             _halving = 1;
